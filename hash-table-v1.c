@@ -1,11 +1,13 @@
 #include "hash-table-base.h"
 
+#include <stdio.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/queue.h>
 
 #include <pthread.h>
+
 
 struct list_entry {
 	const char *key;
@@ -21,6 +23,7 @@ struct hash_table_entry {
 
 struct hash_table_v1 {
 	struct hash_table_entry entries[HASH_TABLE_CAPACITY];
+	pthread_mutex_t hash_table_mutex;
 };
 
 struct hash_table_v1 *hash_table_v1_create()
@@ -30,6 +33,11 @@ struct hash_table_v1 *hash_table_v1_create()
 	for (size_t i = 0; i < HASH_TABLE_CAPACITY; ++i) {
 		struct hash_table_entry *entry = &hash_table->entries[i];
 		SLIST_INIT(&entry->list_head);
+	}
+	int rc = pthread_mutex_init(&hash_table->hash_table_mutex, NULL);
+	if (rc != 0) {
+		fprintf(stderr, "Failed to initialize mutex: %s\n", strerror(rc));
+		exit(rc);
 	}
 	return hash_table;
 }
@@ -73,12 +81,18 @@ void hash_table_v1_add_entry(struct hash_table_v1 *hash_table,
                              uint32_t value)
 {
 	struct hash_table_entry *hash_table_entry = get_hash_table_entry(hash_table, key);
+	int rc = pthread_mutex_lock(&hash_table->hash_table_mutex);
+	if (rc != 0) {
+		fprintf(stderr, "Failed to lock mutex: %s\n", strerror(rc));
+		exit(rc);
+	}
 	struct list_head *list_head = &hash_table_entry->list_head;
 	struct list_entry *list_entry = get_list_entry(hash_table, key, list_head);
 
 	/* Update the value if it already exists */
 	if (list_entry != NULL) {
 		list_entry->value = value;
+		pthread_mutex_unlock(&hash_table->hash_table_mutex);
 		return;
 	}
 
@@ -86,6 +100,11 @@ void hash_table_v1_add_entry(struct hash_table_v1 *hash_table,
 	list_entry->key = key;
 	list_entry->value = value;
 	SLIST_INSERT_HEAD(list_head, list_entry, pointers);
+	rc = pthread_mutex_unlock(&hash_table->hash_table_mutex);
+	if (rc != 0) {
+		fprintf(stderr, "Failed to unlock mutex: %s\n", strerror(rc));
+		exit(rc);
+	}
 }
 
 uint32_t hash_table_v1_get_value(struct hash_table_v1 *hash_table,
@@ -109,6 +128,11 @@ void hash_table_v1_destroy(struct hash_table_v1 *hash_table)
 			SLIST_REMOVE_HEAD(list_head, pointers);
 			free(list_entry);
 		}
+	}
+	int rc = pthread_mutex_destroy(&hash_table->hash_table_mutex);
+	if (rc != 0) {
+		fprintf(stderr, "Failed to destroy mutex: %s\n", strerror(rc));
+		exit(rc);
 	}
 	free(hash_table);
 }
