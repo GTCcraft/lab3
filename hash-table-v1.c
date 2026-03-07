@@ -92,7 +92,11 @@ void hash_table_v1_add_entry(struct hash_table_v1 *hash_table,
 	/* Update the value if it already exists */
 	if (list_entry != NULL) {
 		list_entry->value = value;
-		pthread_mutex_unlock(&hash_table->hash_table_mutex);
+		rc = pthread_mutex_unlock(&hash_table->hash_table_mutex);
+		if (rc != 0) {
+			fprintf(stderr, "Failed to unlock mutex: %s\n", strerror(rc));
+			exit(rc);
+		}
 		return;
 	}
 
